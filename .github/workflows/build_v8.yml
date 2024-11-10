@@ -1,0 +1,65 @@
+name: Build V8
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Install depot_tools
+      - name: Install depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$PWD/depot_tools" >> $GITHUB_PATH
+
+      # Step 3: Fetch V8 source code
+      - name: Fetch V8
+        run: |
+          mkdir v8 && cd v8
+          fetch v8
+          cd v8
+          git checkout branch-heads/10.8
+          gclient sync
+
+      # Step 4: Set up Android NDK environment (if building for Android)
+      - name: Setup Android NDK
+        uses: android/ndk@v1
+        with:
+          ndk-version: "23.1.7779620"
+
+      # Step 5: Build V8
+      - name: Build V8 for Android arm64
+        run: |
+          cd v8/v8
+          gn gen out/android-arm64-release --args='target_os="android" target_cpu="arm64" v8_target_cpu="arm64" is_debug=false'
+          ninja -C out/android-arm64-release v8_monolith
+
+      # Step 6: Upload build artifacts (optional)
+      - name: Upload V8 build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: v8-arm64-build
+          path: v8/v8/out/android-arm64-release/obj/
+
+      - name: Cache depot_tools
+        uses: actions/cache@v3
+        with:
+          path: depot_tools
+          key: ${{ runner.os }}-depot-tools
+
+      - name: Cache V8 dependencies
+        uses: actions/cache@v3
+        with:
+          path: v8/.gclient
+          key: ${{ runner.os }}-v8-deps
