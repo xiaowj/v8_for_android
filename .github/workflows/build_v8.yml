@@ -13,53 +13,60 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repository
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    # Step 1: Checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      # Step 2: Install depot_tools
-      - name: Install depot_tools
-        run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          echo "$PWD/depot_tools" >> $GITHUB_PATH
+    # Step 2: Cache depot_tools
+    - name: Cache depot_tools
+      uses: actions/cache@v3
+      with:
+        path: depot_tools
+        key: ${{ runner.os }}-depot-tools
 
-      # Step 3: Fetch V8 source code
-      - name: Fetch V8
-        run: |
-          mkdir v8 && cd v8
-          fetch v8
-          cd v8
-          git checkout branch-heads/10.8
-          gclient sync
+    # Step 3: Install depot_tools (if not cached)
+    - name: Install depot_tools
+      if: steps.cache-depot-tools.outputs.cache-hit != 'true'
+      run: |
+        git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+        echo "$PWD/depot_tools" >> $GITHUB_PATH
 
-      # Step 4: Set up Android NDK environment (if building for Android)
-      - name: Setup Android NDK
-        uses: android/ndk@v1
-        with:
-          ndk-version: "23.1.7779620"
+    # Step 4: Cache V8 dependencies (gclient sync)
+    - name: Cache V8 dependencies
+      uses: actions/cache@v3
+      with:
+        path: v8/.gclient
+        key: ${{ runner.os }}-v8-deps
 
-      # Step 5: Build V8
-      - name: Build V8 for Android arm64
-        run: |
-          cd v8/v8
-          gn gen out/android-arm64-release --args='target_os="android" target_cpu="arm64" v8_target_cpu="arm64" is_debug=false'
-          ninja -C out/android-arm64-release v8_monolith
+    # Step 5: Fetch V8 source code (if not cached)
+    - name: Fetch V8
+      if: steps.cache-v8-dependencies.outputs.cache-hit != 'true'
+      run: |
+        mkdir v8 && cd v8
+        fetch v8
+        cd v8
+        git checkout branch-heads/10.8
+        gclient sync
 
-      # Step 6: Upload build artifacts (optional)
-      - name: Upload V8 build artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: v8-arm64-build
-          path: v8/v8/out/android-arm64-release/obj/
+    # Step 6: Download and setup Android NDK
+    - name: Download Android NDK
+      run: |
+        wget https://dl.google.com/android/repository/android-ndk-r23b-linux.zip
+        unzip android-ndk-r23b-linux.zip
+        echo "$PWD/android-ndk-r23b" >> $GITHUB_PATH
+        export ANDROID_NDK_ROOT=$PWD/android-ndk-r23b
+        export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
-      - name: Cache depot_tools
-        uses: actions/cache@v3
-        with:
-          path: depot_tools
-          key: ${{ runner.os }}-depot-tools
+    # Step 7: Build V8 for Android arm64
+    - name: Build V8 for Android arm64
+      run: |
+        cd v8/v8
+        gn gen out/android-arm64-release --args='target_os="android" target_cpu="arm64" v8_target_cpu="arm64" is_debug=false'
+        ninja -C out/android-arm64-release v8_monolith
 
-      - name: Cache V8 dependencies
-        uses: actions/cache@v3
-        with:
-          path: v8/.gclient
-          key: ${{ runner.os }}-v8-deps
+    # Step 8: Upload build artifacts (optional)
+    - name: Upload V8 build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: v8-arm64-build
+        path: v8/v8/out/android-arm64-release/obj/
